@@ -2,7 +2,7 @@ import http from "node:http";
 import { existsSync, readFileSync } from "node:fs";
 
 /**
- * Bops' public front door (api.bops.bot, on Fly). Webhooks from AgentPhone, OpenAI and Bops' Slack app arrive here
+ * Bops' public front door (api.bops.bot, on Fly). Webhooks from AgentPhone, OpenAI, Bops' Slack app and WhatsApp arrive here
  * and go, byte for byte, to the Bops server on the user's Mac over the tailnet. Bops checks their
  * signatures itself. If the Mac can't be reached (asleep, offline), the sender gets a 503 and
  * retries later.
@@ -22,7 +22,20 @@ const ROUTES = {
   "/hooks/agentphone": "/api/phone/agentphone",
   "/hooks/openai": "/api/phone/openai",
   "/hooks/slack": "/api/channels/slack/events",
+  "/hooks/whatsapp": "/api/channels/whatsapp/events",
 };
+
+/**
+ * Meta checks a WhatsApp webhook with a GET before it sends anything: the token it was given must
+ * match BOPS_WHATSAPP_VERIFY_TOKEN, and the answer is its challenge. Answered here, so setting it up
+ * doesn't need the Mac awake.
+ */
+function whatsappVerify(url, res) {
+  const want = process.env.BOPS_WHATSAPP_VERIFY_TOKEN;
+  const ok = !!want && url.searchParams.get("hub.mode") === "subscribe" && url.searchParams.get("hub.verify_token") === want;
+  log({ path: url.pathname, status: ok ? 200 : 403 });
+  res.writeHead(ok ? 200 : 403, { "content-type": "text/plain" }).end(ok ? (url.searchParams.get("hub.challenge") ?? "") : "");
+}
 
 const log = (entry) => console.log(JSON.stringify({ at: new Date().toISOString(), ...entry }));
 
@@ -67,6 +80,7 @@ http
     if (req.method === "GET" && url.pathname === "/connected")
       return void res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }).end(connectedPage(url));
     if (req.method === "GET" && asset(url.pathname, res)) return;
+    if (req.method === "GET" && url.pathname === "/hooks/whatsapp") return whatsappVerify(url, res);
     const path = ROUTES[url.pathname];
     if (!path || req.method !== "POST") return void res.writeHead(404).end();
 

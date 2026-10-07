@@ -559,7 +559,7 @@ export const APP_LEVELS: { id: AppLevel; name: string; hint: string }[] = [
 ];
 
 /** Where a bot can be added like a teammate. Slack goes through Composio; Telegram and Discord are the bot's own accounts there. */
-export type ChannelKind = "slack" | "telegram" | "discord";
+export type ChannelKind = "slack" | "telegram" | "discord" | "whatsapp";
 
 /**
  * A bot added to a channel. Telegram and Discord: a bot account the user made for it (its token is
@@ -596,6 +596,8 @@ export type ChannelLink = {
    * they've written there: from them, or with the right code).
    */
   slack?: { accountId: string; teamId?: string; botUserId?: string; channels: { id: string; name: string }[]; dm?: string };
+  /** The WhatsApp Business number this bot answers on: its id in Meta's Cloud API, and the number in digits. */
+  whatsapp?: { phoneNumberId: string; number: string };
 };
 
 /** How long a pairing code pairs, and how many wrong codes it takes before it stops (a new one is a tap away in Bops). */
@@ -722,5 +724,5 @@ export const CHANNELS: { id: string; name: string; color: string; glyph: string;
   { id: "imessage", name: "iMessage + SMS", color: "#0A84FF", glyph: "✉", logo: { src: "/logos/imessage.svg", tile: true }, hint: "Uses the bot's phone" },
   // The bot's own inbox isn't a brand, so it keeps a plain mark.
   { id: "email", name: "Email", color: "#3A3A38", glyph: "@", hint: "Its own inbox" },
-  { id: "whatsapp", name: "WhatsApp", color: "#25D366", glyph: "W", logo: { src: "/logos/whatsapp.svg" }, hint: "Uses the bot's number" },
+  { id: "whatsapp", name: "WhatsApp", color: "#25D366", glyph: "W", logo: { src: "/logos/whatsapp.svg" }, hint: "Its own WhatsApp number", live: true },
 ];

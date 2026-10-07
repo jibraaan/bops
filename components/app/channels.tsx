@@ -11,7 +11,7 @@ import { BrandTile, post } from "./ui";
  * so setting up Telegram never pushes the profile around more than it has to.
  */
 
-type Kind = "slack" | "telegram" | "discord";
+type Kind = "slack" | "telegram" | "discord" | "whatsapp";
 
 export function WhereToFind({ state, bot: b }: { state: AppState; bot: Bot }) {
   const [open, setOpen] = useState<Kind | null>(null);
@@ -35,7 +35,7 @@ export function WhereToFind({ state, bot: b }: { state: AppState; bot: Bot }) {
       <div className="grid grid-cols-3 gap-2">
         {CHANNELS.map((ch) => {
           const s = status(ch.id);
-          const setup = ch.live && ["slack", "telegram", "discord"].includes(ch.id);
+          const setup = ch.live && ["slack", "telegram", "discord", "whatsapp"].includes(ch.id);
           const soon = !ch.live && ch.id === "whatsapp";
           const body = (
             <>
@@ -82,7 +82,71 @@ const quiet = "shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-[12px] f
 function Setup({ state, bot: b, kind, link }: { state: AppState; bot: Bot; kind: Kind; link?: ChannelLink }) {
   if (link) return <Linked bot={b} link={link} />;
   if (kind === "slack") return <SlackSetup state={state} bot={b} />;
+  if (kind === "whatsapp") return <WhatsAppSetup bot={b} />;
   return <TokenSetup bot={b} kind={kind} />;
+}
+
+/** WhatsApp: a number in the user's own Meta app (Cloud API), by its phone number id and an access token. */
+function WhatsAppSetup({ bot: b }: { bot: Bot }) {
+  const [phoneNumberId, setId] = useState("");
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ready = phoneNumberId.trim() && token.trim();
+  const add = async () => {
+    setBusy(true);
+    setError(null);
+    const res = await post("/api/channels", { botId: b.id, kind: "whatsapp", phoneNumberId, token });
+    const j = (await res.json()) as { error?: string };
+    setBusy(false);
+    if (j.error) setError(j.error);
+  };
+  const steps = [
+    <>
+      In{" "}
+      <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer" className="font-medium underline">
+        Meta for Developers
+      </a>
+      , make a Business app and add <b>WhatsApp</b>. Add a phone number for {b.name}.
+    </>,
+    <>
+      Under <b>Webhooks</b>, use your front door&rsquo;s <Code>/hooks/whatsapp</Code> address and your verify token, and subscribe to <b>messages</b>.
+    </>,
+    <>Paste the number&rsquo;s <b>phone number id</b> and an access token for it (a system user&rsquo;s, so it doesn&rsquo;t expire).</>,
+  ];
+  return (
+    <div className={card}>
+      <ol className="flex flex-col gap-1.5">
+        {steps.map((s, i) => (
+          <li key={i} className="flex gap-2.5 text-[12.5px] leading-[18px] text-[#3A3A38]">
+            <span className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-[#F2F2F0] text-[10.5px] font-semibold text-[#6B6B6B]">{i + 1}</span>
+            <span>{s}</span>
+          </li>
+        ))}
+      </ol>
+      <div className="flex flex-col gap-2">
+        <input value={phoneNumberId} onChange={(e) => setId(e.target.value)} placeholder="Phone number id, e.g. 106540352242922" inputMode="numeric" autoComplete="off" className={field} />
+        <div className="flex gap-2">
+          <input
+            type="password"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && ready && void add()}
+            placeholder="Access token"
+            autoComplete="off"
+            className={field}
+          />
+          <button onClick={() => void add()} disabled={busy || !ready} className={primary}>
+            {busy ? "Checking…" : `Add ${b.name}`}
+          </button>
+        </div>
+      </div>
+      {error && <span className="text-[12px] leading-4 text-[#B42318]">{error}</span>}
+      <span className="text-[11.5px] leading-4 text-[#9A9A98]">
+        The token stays in your Mac&apos;s Keychain. {b.name} takes requests only from you there, and WhatsApp lets it write within 24 hours of your last message.
+      </span>
+    </div>
+  );
 }
 
 /** Telegram and Discord: make the bot's account there, paste its token. */
@@ -277,6 +341,15 @@ function Linked({ bot: b, link: l }: { bot: Bot; link: ChannelLink }) {
       <button onClick={() => void post("/api/channels", { linkId: l.id }, "PATCH")} className={primary}>
         New code
       </button>
+    </>
+  ) : l.kind === "whatsapp" && l.whatsapp?.number ? (
+    <>
+      <a href={`https://wa.me/${l.whatsapp.number}?text=${l.pairCode}`} target="_blank" rel="noreferrer" className={primary}>
+        Pair in WhatsApp
+      </a>
+      <span className="text-[12px] leading-4 text-[#6B6B6B]">
+        Opens a chat with {l.handle} with <Code>{l.pairCode}</Code> typed in: send it
+      </span>
     </>
   ) : l.kind === "telegram" ? (
     <>

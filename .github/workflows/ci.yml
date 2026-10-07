@@ -25,5 +25,7 @@ jobs:
         run: npx tsc --noEmit -p .
       - name: Lint
         run: npm run lint
+      - name: Tests (lib/)
+        run: npm run test:lib
       - name: Secret scan (whole history)
         run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest git /repo --redact --log-opts="--all"

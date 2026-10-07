@@ -21,8 +21,13 @@ cd "$root"
 # runs its own bundled server instead.
 rm -f desktop/repo.json
 
-# The architectures to build, as electron-builder names them (package.json's mac targets).
-arches=(arm64 x64)
+# The architectures to build, as electron-builder names them: package.json's mac targets (both), or
+# only those asked for with --arm64 / --x64 (which go on to electron-builder too).
+arches=()
+for a in "$@"; do
+  case "$a" in --arm64) arches+=(arm64) ;; --x64) arches+=(x64) ;; esac
+done
+[ ${#arches[@]} -gt 0 ] || arches=(arm64 x64)
 
 # 1. The orgo-relay agent for each, bundled as Contents/Resources/bin/orgo-relay.
 for arch in "${arches[@]}"; do
@@ -136,7 +141,9 @@ smoke_test() {
 for arch in "${arches[@]}"; do
   app="$(app_of "$arch")"
   [ -d "$app" ] || { echo "No $app: electron-builder didn't build $arch." >&2; exit 1; }
-  if [ "$arch" = x64 ] && [ "$(uname -m)" = arm64 ] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+  if [ "$arch" = arm64 ] && [ "$(uname -m)" != arm64 ]; then
+    echo "This is an Intel Mac, which can't run the Apple silicon app: its server isn't smoke tested here." >&2
+  elif [ "$arch" = x64 ] && [ "$(uname -m)" = arm64 ] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
     echo "Rosetta isn't installed, so the Intel app's server isn't smoke tested (softwareupdate --install-rosetta)." >&2
   else
     smoke_test "$app"

@@ -10,7 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "app": "electron .",
-    "app:build": "node -e \"require('fs').writeFileSync('desktop/repo.json', JSON.stringify({ path: process.cwd() }))\" && electron-builder --mac --dir --$(node -p process.arch) -c.mac.identity=null",
+    "app:build": "node -e \"require('fs').writeFileSync('desktop/repo.json', JSON.stringify({ path: process.cwd() }))\" && scripts/relay-for-this-mac.sh && electron-builder --mac --dir --$(node -p process.arch) -c.mac.identity=null",
     "app:install": "npm run app:build && rm -rf /Applications/Bops.app && ditto dist-desktop/mac$([ \"$(uname -m)\" = arm64 ] && echo -arm64)/Bops.app /Applications/Bops.app",
     "fast": "next build && next start --port 3210",
     "app:release": "scripts/release.sh"

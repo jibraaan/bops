@@ -1,6 +1,6 @@
 import "server-only";
 import { Honcho, type Peer, type Session as HonchoSession } from "@honcho-ai/sdk";
-import { openaiClient } from "./openai-client";
+import { respond } from "./llm";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { MAIN_WORKSPACE, workspaceOf, type MemoryGroup } from "@/lib/types";
 import { cloudOn, cloudProxy, cloudSessionNow } from "./cloud";
@@ -301,7 +301,6 @@ const WORTH_REMEMBERING = (said: string): Question => ({
   criteria: { true: "States a lasting fact worth remembering", false: "A request, question, small talk, or passing state" },
 });
 
-const openai = openaiClient();
 
 /** Asking to keep something from someone ("don't tell Sam yet", "keep this between us"): caught at once, before Jev. */
 const SECRET = /\b(don'?t|do not|never) (tell|share|mention|let)\b|\bkeep (it|this|that)? ?(from|between|private|quiet)|\bbetween (us|you and me)\b|\b(this is|it's|that's) private\b|\boff the record\b/i;
@@ -342,9 +341,9 @@ export function rememberMessage(ws: string, chatId: string, messageId: string, s
     }
     saveToMemory(ws, "chat", chatId, [{ who: "owner", text: said }], metadata);
     if (said.trim().length < 8 || (yes(a?.worth) ?? 0) < 0.6) return;
-    const res = await openai.responses.create({
-      model: MODEL,
-      reasoning: { effort: "low" },
+    const res = await respond({
+      openaiModel: MODEL,
+      effort: "low",
       instructions: `${owner} told their assistant something about themselves. Write each lasting fact in it as one plain sentence in the third person, starting with "${owner}" ("${owner} is vegetarian.", "${owner}'s sister is Ana."). One per line, at most three. Only what they said, nothing guessed. If there's no lasting fact, write NONE.`,
       input: said.slice(0, 2000),
     });

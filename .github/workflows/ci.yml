@@ -25,5 +25,35 @@ jobs:
         run: npx tsc --noEmit -p .
       - name: Lint
         run: npm run lint
+      - name: Typecheck the cloud
+        run: npx tsc --noEmit -p cloud/tsconfig.json
+      - name: Build
+        run: npx next build
       - name: Secret scan (whole history)
         run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest git /repo --redact --log-opts="--all"
+
+  # The cloud's tests (cloud/test/): fake providers on localhost and a throwaway Postgres, made by
+  # scripts/test-db.sh. Node 24, as the cloud runs on.
+  test:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Test databases
+        run: scripts/test-db.sh
+      - name: Tests
+        run: npm test

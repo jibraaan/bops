@@ -36,6 +36,9 @@ const nextConfig: NextConfig = {
       "./app/**",
       "./assets/**",
       "./build/**",
+      // Bops Cloud and the Slack app's setup run elsewhere; the server only compiles in cloud/protocol.ts.
+      "./cloud/**",
+      "./slack/**",
       "./components/**",
       "./db/**",
       "./desktop/**",

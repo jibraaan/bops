@@ -339,7 +339,7 @@
   function hold(e, p) {
     try {
       badge.setPointerCapture(e.pointerId);
-    } catch (err) {} // the browser already took this pointer for a scroll
+    } catch {} // the browser already took this pointer for a scroll
     grab = { id: e.pointerId, x0: p[0], y0: p[1], a0: s.a, b0: angle(p[0], p[1]), t0: performance.now(), moved: 0, mouse: e.pointerType === "mouse" };
     const [x, y] = toStage(e);
     Object.assign(ptr, { x, y, px: x, py: y, vx: 0, vy: 0, on: true });

@@ -83,7 +83,7 @@
     try {
       await navigator.clipboard.writeText(text);
       return true;
-    } catch (_) {
+    } catch {
       // No clipboard API (an older browser, or not https): the old way, from inside the dialog.
       const area = document.createElement("textarea");
       area.className = "mac-note-copy";
@@ -93,7 +93,7 @@
       area.select();
       area.setSelectionRange(0, text.length);
       let ok = false;
-      try { ok = document.execCommand("copy"); } catch (_) { ok = false; }
+      try { ok = document.execCommand("copy"); } catch { ok = false; }
       area.remove();
       copy.focus();
       return ok;

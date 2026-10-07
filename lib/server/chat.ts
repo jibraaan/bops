@@ -2,7 +2,7 @@ import "server-only";
 import { isSecret, learn, memoryBlock, memoryOn, recall, rememberMessage, saveToMemory, wsOf } from "./memory";
 import { APP_TOOLS, findAppActions, runAppAction } from "./composio";
 import { appsNote, placesNote } from "./skills";
-import { openaiClient } from "./openai-client";
+import { respond, type FunctionCall } from "./llm";
 import { contactLine, createBot } from "./bots";
 import { creditsOut, noteOutOfCredit, OUT_OF_CREDIT } from "./cloud";
 import { noOwnComputer } from "./plan";
@@ -30,7 +30,6 @@ import { recordTokens } from "./usage";
  * each bot speaks for itself. Bots can tapback instead of replying, and inline replies stay together.
  */
 
-const client = openaiClient();
 const CHAT_MODEL = process.env.BOPS_CHAT_MODEL ?? process.env.BOPS_SAM_MODEL ?? "gpt-6.1-sol";
 /** Texting should feel instant: chat turns mostly reply and route, so they think lightly. Threads think harder. */
 const CHAT_REASONING = { effort: (process.env.BOPS_CHAT_EFFORT ?? "low") as "low" | "medium" | "high" };
@@ -295,13 +294,12 @@ async function acknowledge(b: Bot | undefined, request: string, task: string, pa
   const plain = passTo ? `Passing that to ${passTo}.` : `Adding that to ${task.charAt(0).toLowerCase()}${task.slice(1)}.`;
   try {
     const res = await Promise.race([
-      client.responses
-        .create({
-          model: CHAT_MODEL,
-          reasoning: { effort: "low" },
-          instructions: `You are ${b?.name ?? "a bot"}, texting ${ownerName()} back. They just added something to a task you're already doing${passTo ? ` (${passTo} is doing it; say you'll pass it on)` : ""}. Reply with one short, natural line about what you'll do now, in words that fit what they said, like a friend would text. The task isn't done yet: never give an answer or a result, and never say it's done. No "On it.", no quotes, no emoji, under 12 words.`,
-          input: JSON.stringify({ task, owner_said: request }),
-        })
+      respond({
+        openaiModel: CHAT_MODEL,
+        effort: "low",
+        instructions: `You are ${b?.name ?? "a bot"}, texting ${ownerName()} back. They just added something to a task you're already doing${passTo ? ` (${passTo} is doing it; say you'll pass it on)` : ""}. Reply with one short, natural line about what you'll do now, in words that fit what they said, like a friend would text. The task isn't done yet: never give an answer or a result, and never say it's done. No "On it.", no quotes, no emoji, under 12 words.`,
+        input: JSON.stringify({ task, owner_said: request }),
+      })
         // Counted when it arrives, even after the plain words won the race: it cost the same.
         .then((r) => (recordTokens("chat", r.model, r.usage, b?.id), r)),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
@@ -440,9 +438,9 @@ async function askTeammate(asker: Bot, toId: string, question: string, chatId: s
       keepFrom ? `You were asked by ${owner} to keep things from ${asker.name} (or from the team). Never share those with ${asker.name}, not even a hint; say it's private to ${owner} and ${asker.name} can ask ${owner}:\n${keepFrom}` : "",
       `This is your conversation with ${asker.name} (${asker.role}), your teammate; ${asker.name} asks you things while helping ${owner}. Answer ${asker.name} in one to three plain sentences, from what you know. If you don't know, say so plainly and say how you'd find out. You can't start tasks or ask anyone else here.`,
     ].join("\n");
-    const res = await client.responses.create({
-      model: CHAT_MODEL,
-      reasoning: CHAT_REASONING,
+    const res = await respond({
+      openaiModel: CHAT_MODEL,
+      effort: CHAT_REASONING.effort,
       instructions,
       input: history(pair, t.id).slice(-16),
     });
@@ -614,17 +612,17 @@ async function botTurn(botId: string, chatId: string, opts: TurnOptions = {}): P
       // Searched only when knowing the user helps with this message (Jev); small talk and plain commands skip it.
       await memoryBlock(workspaceOf(b), lastWords(chatId), 2500, { search: await needsMemory(lastWords(chatId)) }),
     ].join("\n");
-    let response = await client.responses.create({ model: CHAT_MODEL, reasoning: CHAT_REASONING, instructions, input: history(chatId, botId), tools });
+    let response = await respond({ openaiModel: CHAT_MODEL, effort: CHAT_REASONING.effort, instructions, input: history(chatId, botId), tools });
     recordTokens("chat", response.model, response.usage, botId);
     // App lookups come back to the model before it answers (a few rounds at most). Other tools
     // called along the way (start_task…) are kept and handled with the final answer's.
-    const earlier: typeof response.output = [];
+    const earlier: FunctionCall[] = [];
     // Lines for the chat after the reply ("Remembered: …", "Scheduled …").
     const notes: string[] = [];
     // Teammates asked along the way, shown over the reply.
     const asked: NonNullable<Message["asked"]> = [];
     for (let round = 0; round < 6; round++) {
-      const calls = response.output.filter((o) => o.type === "function_call" && LOOKUPS.has(o.name)) as { call_id: string; name: string; arguments: string }[];
+      const calls = response.calls.filter((o) => LOOKUPS.has(o.name));
       if (!calls.length) break;
       const outputs = await Promise.all(
         calls.map(async (c) => {
@@ -680,13 +678,13 @@ async function botTurn(botId: string, chatId: string, opts: TurnOptions = {}): P
         }),
       );
       // Other tools called in the same round (start_task…) are handled below; they just need an output here.
-      const rest = response.output.filter((o) => o.type === "function_call" && !calls.includes(o as never)) as { call_id: string }[];
-      earlier.push(...(rest as never[]));
-      response = await client.responses.create({
-        model: CHAT_MODEL,
-        reasoning: CHAT_REASONING,
+      const rest = response.calls.filter((o) => !calls.includes(o));
+      earlier.push(...rest);
+      response = await respond({
+        openaiModel: CHAT_MODEL,
+        effort: CHAT_REASONING.effort,
         instructions,
-        previous_response_id: response.id,
+        previous: response.id,
         input: [...outputs, ...rest.map((o) => ({ type: "function_call_output" as const, call_id: o.call_id, output: "ok" }))],
         tools,
       });
@@ -702,8 +700,8 @@ async function botTurn(botId: string, chatId: string, opts: TurnOptions = {}): P
     const says: string[] = [];
     let reacted = false;
     const pages: string[] = [];
-    for (const item of [...earlier, ...response.output]) {
-      if (item.type !== "function_call" || LOOKUPS.has(item.name)) continue;
+    for (const item of [...earlier, ...response.calls]) {
+      if (LOOKUPS.has(item.name)) continue;
       if (item.name === "make_page") {
         const { title, html } = JSON.parse(item.arguments) as { title: string; html: string };
         pages.push(`[${title.replace(/[[\]]/g, "")}](/api/pages/${savePage(title, html)})`);

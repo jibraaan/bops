@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:lib": "node --conditions=react-server --import ./scripts/test-resolve.mjs --test lib/",
     "app": "electron .",
     "app:build": "node -e \"require('fs').writeFileSync('desktop/repo.json', JSON.stringify({ path: process.cwd() }))\" && electron-builder --mac --dir -c.mac.identity=null",
     "app:install": "npm run app:build && rm -rf /Applications/Bops.app && ditto dist-desktop/mac-arm64/Bops.app /Applications/Bops.app",
@@ -16,6 +17,7 @@
     "app:release": "scripts/release.sh"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.0",
     "@base-ui/react": "^1.8.0",
     "@composio/core": "^0.22.0",
     "@composio/openai": "^0.13.0",

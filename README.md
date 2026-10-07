@@ -74,7 +74,7 @@ Requires macOS on Apple silicon.
 ```
 Bops.app (Electron) ── loads ──► Bops server (Next.js, port 3210, on your Mac)
                                    ├─ chat, threads, routines, watches (state in .data/)
-                                   ├─ OpenAI: chat, agent runs, GPT-Live calls
+                                   ├─ OpenAI: chat, agent runs, GPT-Live calls (or Claude for the chat)
                                    ├─ Orgo: bots' computers (CDP and screens over Tailscale, or Orgo's API)
                                    ├─ Codex + cua-driver: work on your Mac
                                    ├─ Honcho (memory), Composio (apps), AgentMail (email), AgentPhone (texts, calls)
@@ -89,6 +89,7 @@ Everything runs on your Mac except the bots' computers and the providers. `edge/
 - **Required:** an OpenAI API key and an Orgo account.
 - **Recommended:** Typesafe (small judgment calls), Honcho (memory), Composio (apps), AgentMail (email), Tailscale (direct live view of the bots' screens).
 - **Optional:** AgentPhone plus a public URL for texts and calls (see `edge/`).
+- **Optional:** Claude for the chat. Set `BOPS_MODEL_PROVIDER=claude` and `ANTHROPIC_API_KEY` (and `BOPS_CLAUDE_MODEL` for a model other than Claude Opus 5.5). Replies, hand-offs, memory and suggestions then run on Claude; threads on a computer and calls stay on OpenAI.
 - **For "Your Mac":** the Codex CLI signed in with ChatGPT (with computer use), and `cua-driver` (default `~/.local/bin/cua-driver`). macOS asks for Screen Recording and Accessibility.
 
 ## Self-host it

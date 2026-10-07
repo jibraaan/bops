@@ -20,7 +20,7 @@ import { NextResponse, type NextRequest } from "next/server";
  */
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
-const TAILNET_PATHS = new Set(["/api/apps/call", "/api/phone/agentphone", "/api/phone/openai", "/api/channels/slack/events"]);
+const TAILNET_PATHS = new Set(["/api/apps/call", "/api/phone/agentphone", "/api/phone/openai", "/api/channels/slack/events", "/api/channels/whatsapp/events"]);
 
 const hostname = (host: string) => host.replace(/:\d+$/, "").toLowerCase();
 

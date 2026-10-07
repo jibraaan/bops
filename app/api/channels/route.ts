@@ -1,19 +1,21 @@
-import { linkDiscord, linkSlack, linkTelegram, removeLink, repair } from "@/lib/server/channels";
+import { linkDiscord, linkSlack, linkTelegram, linkWhatsApp, removeLink, repair } from "@/lib/server/channels";
 
 const fail = (e: unknown) => Response.json({ error: (e as Error).message }, { status: 400 });
 
 /**
  * Add a bot to a channel: Telegram or Discord with the token of the bot account the user made for it
- * (it goes to the Keychain), or Slack through the user's Slack app account, into the channels they picked.
+ * (it goes to the Keychain), WhatsApp with a number's id and access token in the user's Meta app, or
+ * Slack through the user's Slack app account, into the channels they picked.
  */
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as { botId?: string; kind?: string; token?: string; account?: string; channels?: { id: string; name: string }[] };
+  const body = (await request.json().catch(() => ({}))) as { botId?: string; kind?: string; token?: string; phoneNumberId?: string; account?: string; channels?: { id: string; name: string }[] };
   try {
     if (!body.botId) throw new Error("Which bot?");
     if (body.kind === "telegram") return Response.json(await linkTelegram(body.botId, body.token ?? ""));
     if (body.kind === "discord") return Response.json(await linkDiscord(body.botId, body.token ?? ""));
+    if (body.kind === "whatsapp") return Response.json(await linkWhatsApp(body.botId, body.phoneNumberId ?? "", body.token ?? ""));
     if (body.kind === "slack") return Response.json(await linkSlack(body.botId, body.account ?? "", (body.channels ?? []).map((c) => ({ id: String(c.id), name: String(c.name) }))));
-    throw new Error("Slack, Telegram or Discord?");
+    throw new Error("Slack, Telegram, Discord or WhatsApp?");
   } catch (e) {
     return fail(e);
   }

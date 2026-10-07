@@ -80,16 +80,18 @@ export function appsNote(b: Bot, mode: Mode, opts: { tools?: boolean } = {}) {
     .join(" ");
 }
 
-const KIND_NAME = { slack: "Slack", telegram: "Telegram", discord: "Discord" } as const;
+const KIND_NAME = { slack: "Slack", telegram: "Telegram", discord: "Discord", whatsapp: "WhatsApp" } as const;
 
-/** One place in Slack, Telegram or Discord, as the bot is told it: where, and whether it works yet. */
+/** One place in Slack, Telegram, Discord or WhatsApp, as the bot is told it: where, and whether it works yet. */
 function channelPlace(l: ChannelLink, owner: string) {
   const where =
     l.kind === "slack"
       ? `in Slack (${l.handle}: ${[...(l.slack?.channels ?? []).map((c) => `#${c.name}`), "direct messages with the Bops app"].join(", ")})`
       : l.kind === "telegram"
         ? `in Telegram as ${l.handle}`
-        : `in Discord as ${l.handle}${l.discord?.username && l.discord.username !== l.handle ? ` (${l.discord.username})` : ""}`;
+        : l.kind === "whatsapp"
+          ? `on WhatsApp at ${l.handle} (you can write there only within 24 hours of ${owner}'s last message there)`
+          : `in Discord as ${l.handle}${l.discord?.username && l.discord.username !== l.handle ? ` (${l.discord.username})` : ""}`;
   if (l.status === "error") return `${where}, not working right now (${(l.error ?? "it needs attention in Bops").replace(/\.$/, "")})`;
   return l.owner ? where : `${where}, not paired yet (until ${owner} sends you the pairing code there, you answer only the code)`;
 }

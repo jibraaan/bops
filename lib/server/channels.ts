@@ -11,7 +11,7 @@ import { addMessage, bot, getState, id, ownerName, patchSession, update, watchCh
 import { saveUpload } from "./uploads";
 
 /**
- * Bots where the user's team already talks: Slack channels, Telegram and Discord. Like texting a bot's
+ * Bots where the user's team already talks: Slack channels, Telegram, Discord and WhatsApp. Like texting a bot's
  * number, a message there is the user talking to the bot: it shows in the bot's chat in Bops, and the
  * answer (and later, the result of work it started) goes back to the same place.
  *
@@ -19,6 +19,11 @@ import { saveUpload } from "./uploads";
  *   Discord's developer portal) and pastes the token of. So it shows up as "Boppy", with its own name.
  *   Its token lives in the Keychain. Bops talks to them directly: Telegram by long polling, Discord over
  *   its gateway. Neither needs Bops to be reachable from the internet.
+ * - WhatsApp: each bot gets a WhatsApp Business number of its own, in the user's own Meta app (Cloud
+ *   API); the user pastes its phone number id and an access token (the token goes to the Keychain).
+ *   Meta delivers messages only by webhook, so it needs a public front door, as self-hosted Slack does:
+ *   edge/ (/hooks/whatsapp) relays them here, signed with the app's secret (BOPS_WHATSAPP_APP_SECRET).
+ *   WhatsApp lets a business write only within 24 hours of the person's last message there.
  * - Slack: Bops' own Slack app (slack/manifest.json), connected as a Composio account (the "slackbot"
  *   app, in the Vault), and the channels each bot is in. Its events come to Bops Cloud, which passes
  *   this Mac the ones for its bots over the tunnel, or keeps them a day while it's away; this Mac
@@ -190,7 +195,7 @@ async function messageIn(linkId: string, m: Incoming, pool?: ChannelLink[]) {
   const images = await picsOf(m.imageUrls ?? []);
   const chatId = botChatId(b.id);
   const { handleMessage } = await import("./chat");
-  const stopTyping = typing(l, m.chat);
+  const stopTyping = typing(l, m.chat, m.messageId);
   let mine: Awaited<ReturnType<typeof handleMessage>>;
   try {
     mine = await handleMessage(chatId, text || "(a picture)", undefined, images.length ? images : undefined, l.kind, undefined, place);
@@ -233,7 +238,7 @@ function wrongCode(linkIds: string[]) {
   });
 }
 
-const KIND_NAME: Record<ChannelKind, string> = { slack: "Slack", telegram: "Telegram", discord: "Discord" };
+const KIND_NAME: Record<ChannelKind, string> = { slack: "Slack", telegram: "Telegram", discord: "Discord", whatsapp: "WhatsApp" };
 const TAPBACK_EMOJI: Record<string, string> = { love: "❤️", like: "👍", dislike: "👎", laugh: "😂", emphasize: "‼️", question: "❓" };
 
 /* ---------------- Each bot as itself ---------------- */
@@ -383,6 +388,10 @@ async function send(l: ChannelLink, p: ChannelPlace, text: string) {
     const token = await tokenOf(l);
     for (const [i, part] of chunks(text, 1900).entries())
       await dc(token, "POST", `/channels/${p.chat}/messages`, { content: part, allowed_mentions: { parse: [] }, ...(i === 0 && p.messageId && p.thread !== "dm" ? { message_reference: { message_id: p.messageId, fail_if_not_exists: false } } : {}) });
+  } else if (l.kind === "whatsapp") {
+    const token = await tokenOf(l);
+    for (const part of chunks(text, 4000))
+      await wa(token, "POST", `/${l.whatsapp!.phoneNumberId}/messages`, { messaging_product: "whatsapp", recipient_type: "individual", to: p.chat, type: "text", text: { body: part, preview_url: false } });
   } else {
     const thread = p.thread ?? (p.chat.startsWith("D") ? undefined : p.messageId);
     if (thread) live.slackThreads.add(`${p.chat}:${thread}`);
@@ -399,23 +408,30 @@ async function react(l: ChannelLink, p: ChannelPlace, emoji: string) {
     await tg(await tokenOf(l), "setMessageReaction", { chat_id: p.chat, message_id: Number(p.messageId), reaction: [{ type: "emoji", emoji: ok.includes(e) ? e : "👍" }] });
   } else if (l.kind === "discord") {
     await dc(await tokenOf(l), "PUT", `/channels/${p.chat}/messages/${p.messageId}/reactions/${encodeURIComponent(emoji)}/@me`);
+  } else if (l.kind === "whatsapp") {
+    await wa(await tokenOf(l), "POST", `/${l.whatsapp!.phoneNumberId}/messages`, { messaging_product: "whatsapp", recipient_type: "individual", to: p.chat, type: "reaction", reaction: { message_id: p.messageId, emoji } });
   } else {
     const name: Record<string, string> = { "❤️": "heart", "👍": "+1", "👎": "-1", "😂": "joy", "‼️": "bangbang", "❓": "question" };
     await runAs(l.slack!.accountId, "SLACKBOT_ADD_REACTION_TO_AN_ITEM", { channel: p.chat, timestamp: p.messageId, name: name[emoji] ?? "+1" });
   }
 }
 
-/** "Typing…" there while the bot works on its answer (Slack has none for apps). */
-function typing(l: ChannelLink, chat: string) {
-  if (l.kind === "slack") return () => {};
+/**
+ * "Typing…" there while the bot works on its answer (Slack has none for apps). WhatsApp's is on the
+ * message being answered, which it also marks read; it lasts 25 seconds, so it's sent again before then.
+ */
+function typing(l: ChannelLink, chat: string, messageId?: string) {
+  if (l.kind === "slack" || (l.kind === "whatsapp" && !messageId)) return () => {};
   const beat = async () => {
     const token = await tokenOf(l).catch(() => null);
     if (!token) return;
     if (l.kind === "telegram") await tg(token, "sendChatAction", { chat_id: chat, action: "typing" }).catch(() => {});
+    else if (l.kind === "whatsapp")
+      await wa(token, "POST", `/${l.whatsapp!.phoneNumberId}/messages`, { messaging_product: "whatsapp", status: "read", message_id: messageId, typing_indicator: { type: "text" } }).catch(() => {});
     else await dc(token, "POST", `/channels/${chat}/typing`).catch(() => {});
   };
   void beat();
-  const t = setInterval(() => void beat(), l.kind === "telegram" ? 4500 : 8000);
+  const t = setInterval(() => void beat(), l.kind === "telegram" ? 4500 : l.kind === "whatsapp" ? 20_000 : 8000);
   return () => clearInterval(t);
 }
 
@@ -533,6 +549,107 @@ async function telegramIn(linkId: string, token: string, m: TgMessage) {
     mentioned,
     imageUrls,
   });
+}
+
+/* ---------------- WhatsApp ---------------- */
+
+/** Meta's Graph API for WhatsApp (BOPS_WHATSAPP_API points elsewhere: a newer version, or a stand-in for tests). */
+const WHATSAPP = () => process.env.BOPS_WHATSAPP_API || "https://graph.facebook.com/v25.0";
+
+/** What Meta's errors mean for the user, by their code. */
+const WA_ERRORS: Record<number, string> = {
+  131047: "WhatsApp lets a bot write only within 24 hours of your last message to it there. Send it a message on WhatsApp, and it can answer again.",
+  190: "Meta stopped accepting the access token (it expired or was revoked). Add the number again with a new token.",
+};
+
+async function wa<T = unknown>(token: string, method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${WHATSAPP()}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(20_000),
+  });
+  const j = (await res.json().catch(() => ({}))) as T & { error?: { message?: string; code?: number } };
+  if (!res.ok || j.error) {
+    const code = j.error?.code ?? res.status;
+    throw Object.assign(new Error(WA_ERRORS[code] ?? j.error?.message ?? `WhatsApp ${path} failed (${res.status})`), { code });
+  }
+  return j;
+}
+
+/** WhatsApp needs the Meta app's secret here, to know its webhooks are really from Meta. */
+export const whatsappReady = () => !!process.env.BOPS_WHATSAPP_APP_SECRET;
+
+/** Add a bot to WhatsApp: a number in the user's Meta app (its phone number id) and an access token for it. */
+export async function linkWhatsApp(botId: string, phoneNumberId: string, token: string) {
+  const b = bot(botId);
+  if (!b) throw new Error("No such bot");
+  if (!whatsappReady()) throw new Error("WhatsApp needs your Meta app's secret on this Mac (BOPS_WHATSAPP_APP_SECRET) and a front door for its webhook. See README: WhatsApp.");
+  const id = phoneNumberId.trim();
+  const t = token.trim();
+  if (!/^\d{6,24}$/.test(id)) throw new Error("That doesn't look like a phone number id. It's the long number under the phone number in Meta's WhatsApp API setup, not the phone number itself.");
+  if (t.length < 20) throw new Error("Paste the access token for that number.");
+  const me = await wa<{ id: string; display_phone_number?: string; verified_name?: string }>(t, "GET", `/${id}?fields=display_phone_number,verified_name`).catch((e: Error & { code?: number }) => {
+    throw new Error(e.code === 190 || e.code === 401 ? "Meta says that token isn't valid. Make a new one in your app's WhatsApp API setup." : e.code === 100 || e.code === 400 ? "Meta doesn't know that phone number id, or the token can't use it." : e.message);
+  });
+  const taken = linksOf("whatsapp").find((l) => l.whatsapp?.phoneNumberId === id);
+  if (taken && taken.botId !== botId) throw new Error(`${me.display_phone_number ?? "That number"} is already ${bot(taken.botId)?.name ?? "another bot"}'s`);
+  for (const l of linksOf("whatsapp").filter((x) => x.botId === botId)) await removeLink(l.id);
+  const number = (me.display_phone_number ?? "").replace(/\D/g, "");
+  const made = addLink({ kind: "whatsapp", botId, handle: me.display_phone_number ? `+${number}` : (me.verified_name ?? "WhatsApp"), whatsapp: { phoneNumberId: id, number } });
+  await setSecret(secretOf(made.id), t);
+  return made;
+}
+
+type WaMessage = {
+  from: string;
+  id: string;
+  type: string;
+  text?: { body?: string };
+  image?: { id: string; mime_type?: string; caption?: string };
+  button?: { text?: string };
+  interactive?: { button_reply?: { title?: string }; list_reply?: { title?: string } };
+};
+type WaValue = { metadata?: { phone_number_id?: string }; contacts?: { wa_id?: string; profile?: { name?: string } }[]; messages?: WaMessage[] };
+
+/**
+ * A delivery from Meta's webhook (app/api/channels/whatsapp/events), already checked: each message goes
+ * to the bot whose number it was sent to. Read receipts and other updates are left alone.
+ */
+export function whatsappDelivery(payload: unknown) {
+  for (const { phoneNumberId, message, name } of whatsappMessages(payload)) {
+    const l = linksOf("whatsapp").find((x) => x.whatsapp?.phoneNumberId === phoneNumberId);
+    if (l) void whatsappIn(l.id, message, name).catch((err: Error) => console.warn(`[whatsapp] ${err.message}`));
+  }
+}
+
+/** The messages in a delivery: the number each was sent to, the message, and who sent it (their WhatsApp name). */
+export function whatsappMessages(payload: unknown) {
+  const out: { phoneNumberId: string; message: WaMessage; name?: string }[] = [];
+  const entries = (payload as { entry?: { changes?: { field?: string; value?: WaValue }[] }[] })?.entry ?? [];
+  for (const e of Array.isArray(entries) ? entries : [])
+    for (const c of e?.changes ?? []) {
+      const v = c?.value;
+      const phoneNumberId = v?.metadata?.phone_number_id;
+      if (c.field !== "messages" || !phoneNumberId || !Array.isArray(v?.messages)) continue;
+      for (const m of v.messages) if (m?.from && m?.id) out.push({ phoneNumberId, message: m, name: v.contacts?.find((x) => x.wa_id === m.from)?.profile?.name });
+    }
+  return out;
+}
+
+async function whatsappIn(linkId: string, m: WaMessage, name?: string) {
+  const l = linkOf(linkId);
+  if (!l?.whatsapp) return;
+  const text = m.text?.body ?? m.image?.caption ?? m.button?.text ?? m.interactive?.button_reply?.title ?? m.interactive?.list_reply?.title ?? "";
+  let imageUrls: Incoming["imageUrls"];
+  if (m.image?.id) {
+    // A picture comes as an id: its address (good for 5 minutes) is asked for, then fetched with the token.
+    const token = await tokenOf(l);
+    const media = await wa<{ url?: string; mime_type?: string }>(token, "GET", `/${m.image.id}?phone_number_id=${l.whatsapp.phoneNumberId}`).catch(() => null);
+    if (media?.url) imageUrls = [{ url: media.url, type: media.mime_type ?? m.image.mime_type, headers: { Authorization: `Bearer ${token}` } }];
+  }
+  // One-to-one only: a WhatsApp Business number isn't in groups.
+  await messageIn(linkId, { chat: m.from, messageId: m.id, fromId: m.from, fromName: name || `+${m.from}`, text, direct: true, mentioned: true, imageUrls });
 }
 
 /* ---------------- Discord ---------------- */

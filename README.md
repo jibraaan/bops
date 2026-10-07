@@ -22,7 +22,7 @@
 
 ## Bop it. Text it. Call it.
 
-Bops is a Mac app. You chat with your bots like teammates, and they do the work on their own cloud computers: inbox, pipeline, invoices, reports. Text them from your phone, call them and talk live, email them a task, or add them to Slack, Telegram and Discord. Wherever you reach them, they know who you are and what they did yesterday.
+Bops is a Mac app. You chat with your bots like teammates, and they do the work on their own cloud computers: inbox, pipeline, invoices, reports. Text them from your phone, call them and talk live, email them a task, or add them to Slack, Telegram, Discord and WhatsApp. Wherever you reach them, they know who you are and what they did yesterday.
 
 <table>
   <tr>
@@ -56,11 +56,11 @@ Bops is a Mac app. You chat with your bots like teammates, and they do the work 
 - **Your apps** (Composio): Gmail, Calendar, Slack, Notion, HubSpot and about 1,000 more, several accounts each. Reading runs at once; sending, creating or paying asks you first.
 - **Email:** every bot has its own inbox (AgentMail). Mail you send a bot starts a task, and the answer comes back by email.
 - **Texts and calls:** each workspace's main bot has a phone number (AgentPhone). Text it like a person (tapbacks, threads, reminders by text), or call it and talk to it live (GPT-Live over SIP).
-- **Slack, Telegram and Discord:** add a bot like a teammate, and it answers where you asked.
+- **Slack, Telegram, Discord and WhatsApp:** add a bot like a teammate, and it answers where you asked.
 - **Calls in the app:** talk to any bot by voice, and it can start tasks while you talk.
 - **Routines and watches:** scheduled tasks and reminders, and screens a bot keeps an eye on for you.
 
-Coming soon: WhatsApp, and a real phone per bot.
+Coming soon: a real phone per bot.
 
 ## Get Bops
 
@@ -118,6 +118,17 @@ Bot computers launch from an Orgo template built from this repo: `node orgo/bops
 3. Set the `AGENTPHONE_*`, `BOPS_AGENTPHONE_HOOK_URL` and `OPENAI_WEBHOOK_SECRET` settings, then add your mobile in **Settings → How your bots reach you**.
 
 US texting needs an A2P 10DLC registration for your brand.
+
+### WhatsApp (optional, self-hosted)
+
+Each bot answers on a WhatsApp Business number of its own, through your own Meta app (WhatsApp Cloud API). Meta delivers messages only by webhook, so this needs `edge/` (or another public front door).
+
+1. In [Meta for Developers](https://developers.facebook.com/apps), make a Business app, add **WhatsApp**, and add a phone number for each bot.
+2. Set `BOPS_WHATSAPP_APP_SECRET` (the app's secret, under App settings → Basic) in `.env.local` on your Mac, and `BOPS_WHATSAPP_VERIFY_TOKEN` (any string you choose) on `edge/`.
+3. In the app's WhatsApp → Configuration, set the webhook to `https://<your edge>/hooks/whatsapp` with that verify token, and subscribe to **messages**. `edge/` answers Meta's check itself; messages go to your Mac, which checks Meta's signature.
+4. In Bops, open the bot's profile → **Where to find** → **WhatsApp**, and paste the number's phone number id and an access token for it (a system user's, so it doesn't expire). Then tap **Pair in WhatsApp** and send the code.
+
+WhatsApp lets a business write only within 24 hours of the person's last message, so a result that comes later than that waits for your next message there. Bops Cloud (signing in with Orgo) doesn't relay WhatsApp yet.
 
 ## Releasing the Mac app
 

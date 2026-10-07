@@ -9,7 +9,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test cloud/test/",
+    "test": "node --test 'cloud/test/*.test.ts'",
     "test:db": "scripts/test-db.sh",
     "app": "electron .",
     "app:build": "node -e \"require('fs').writeFileSync('desktop/repo.json', JSON.stringify({ path: process.cwd() }))\" && electron-builder --mac --dir -c.mac.identity=null",

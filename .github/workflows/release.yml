@@ -65,11 +65,12 @@ jobs:
           GH_TOKEN: ${{ secrets.ORGO_RELAY_TOKEN }}
         run: scripts/release.sh --publish never
 
-      - name: Notarized and accepted by Gatekeeper
+      - name: Notarized and accepted by Gatekeeper (Apple silicon and Intel)
         run: |
-          app=dist-desktop/mac-arm64/Bops.app
-          xcrun stapler validate "$app"
-          spctl -a -vv -t exec "$app"
+          for app in dist-desktop/mac-arm64/Bops.app dist-desktop/mac/Bops.app; do
+            xcrun stapler validate "$app"
+            spctl -a -vv -t exec "$app"
+          done
 
       - name: Attach to the release
         env:
@@ -82,5 +83,5 @@ jobs:
           case "$TAG" in *-*) pre="--prerelease" ;; esac
           gh release view "$TAG" >/dev/null 2>&1 \
             || gh release create "$TAG" $pre --verify-tag --title "Bops $TAG" \
-                 --notes "Bops for Mac (Apple silicon), signed with Developer ID and notarized by Apple."
+                 --notes "Bops for Mac: arm64 for Apple silicon, x64 for Intel. Signed with Developer ID and notarized by Apple."
           gh release upload "$TAG" "${files[@]}" --clobber

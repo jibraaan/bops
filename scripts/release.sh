@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds Bops.app for release: the orgo-relay agent, the production server (Next standalone) and
-# the signed, notarized DMG + zip in dist-desktop/. See "Releasing the Mac app" in README.md.
+# the signed, notarized DMG + zip in dist-desktop/, one each for Apple silicon (arm64) and Intel
+# (x64). See "Releasing the Mac app" in README.md.
 #
 # Signing uses a "Developer ID Application" certificate: from the keychain, or CSC_LINK (a .p12,
 # path or base64) + CSC_KEY_PASSWORD, or CSC_NAME to pick one. Notarization runs when one of these
@@ -20,13 +21,24 @@ cd "$root"
 # runs its own bundled server instead.
 rm -f desktop/repo.json
 
-# 1. The orgo-relay agent, bundled as Contents/Resources/bin/orgo-relay.
-relay="vendor/orgo-relay/orgo-relay"
-if [ -x scripts/fetch-relay.sh ]; then
-  scripts/fetch-relay.sh
-fi
-[ -x "$relay" ] || { echo "Missing $relay (scripts/fetch-relay.sh puts it there)." >&2; exit 1; }
-file "$relay" | grep -q "arm64" || { echo "$relay is not an arm64 Mac binary." >&2; exit 1; }
+# The architectures to build, as electron-builder names them: package.json's mac targets (both), or
+# only those asked for with --arm64 / --x64 (which go on to electron-builder too).
+arches=()
+for a in "$@"; do
+  case "$a" in --arm64) arches+=(arm64) ;; --x64) arches+=(x64) ;; esac
+done
+[ ${#arches[@]} -gt 0 ] || arches=(arm64 x64)
+
+# 1. The orgo-relay agent for each, bundled as Contents/Resources/bin/orgo-relay.
+for arch in "${arches[@]}"; do
+  relay="vendor/orgo-relay/orgo-relay-$arch"
+  if [ -x scripts/fetch-relay.sh ]; then
+    scripts/fetch-relay.sh "" "$arch"
+  fi
+  [ -x "$relay" ] || { echo "Missing $relay (scripts/fetch-relay.sh puts it there)." >&2; exit 1; }
+  want="$([ "$arch" = x64 ] && echo x86_64 || echo arm64)"
+  file "$relay" | grep -q "$want" || { echo "$relay is not an $want Mac binary." >&2; exit 1; }
+done
 
 # 2. The server. Keys stay out of the app: .env files are never bundled.
 npx next build
@@ -88,49 +100,65 @@ fi
 # node_modules folder, so package.json copies .next/standalone/node_modules on its own).
 npx electron-builder --mac "$@"
 
-app="$root/dist-desktop/mac-arm64/Bops.app"
+# Where electron-builder puts each arch's app.
+app_of() { [ "$1" = x64 ] && echo "$root/dist-desktop/mac/Bops.app" || echo "$root/dist-desktop/mac-$1/Bops.app"; }
 
 # 5. Smoke test: the bundled server starts with the app's own Node and serves the app and its state
 # without a missing file. It runs as a fresh install does: no keys (env -i drops this shell's), an
 # empty HOME, so it can't reach this Mac's Keychain, Orgo sign-in or Codex, and a spare port, so it
-# doesn't meet a running Bops.
-smoke="$(mktemp -d)"
-for f in "$app/Contents/Resources/server/"* "$app/Contents/Resources/server/.next"; do ln -s "$f" "$smoke/"; done
-(cd "$smoke" && exec env -i HOME="$smoke" PATH=/usr/bin:/bin:/usr/sbin:/sbin ELECTRON_RUN_AS_NODE=1 NODE_ENV=production \
-  PORT=3299 HOSTNAME=127.0.0.1 BOPS_SERVER_JS="$app/Contents/Resources/server/server.js" \
-  "$app/Contents/MacOS/Bops" -e "process.chdir = () => {}; require(process.env.BOPS_SERVER_JS)" > "$smoke/server.log" 2>&1) &
-smoke_pid=$!
-ok=""
-for _ in $(seq 1 60); do
-  if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:3299/api/health)" = 200 ]; then ok=1; break; fi
-  sleep 1
-done
-# The page and the app's state must answer too, with no key set (the window loads both first).
-if [ -n "$ok" ]; then
-  for route in / /api/state; do
-    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "http://127.0.0.1:3299$route")"
-    [ "$code" = 200 ] || { echo "$route answered $code without keys." >&2; ok=""; }
+# doesn't meet a running Bops. The Intel app runs under Rosetta on Apple silicon; without Rosetta
+# it's left out (it still gets the signature check).
+smoke_test() {
+  local app="$1" smoke smoke_pid ok="" code route
+  smoke="$(mktemp -d)"
+  for f in "$app/Contents/Resources/server/"* "$app/Contents/Resources/server/.next"; do ln -s "$f" "$smoke/"; done
+  (cd "$smoke" && exec env -i HOME="$smoke" PATH=/usr/bin:/bin:/usr/sbin:/sbin ELECTRON_RUN_AS_NODE=1 NODE_ENV=production \
+    PORT=3299 HOSTNAME=127.0.0.1 BOPS_SERVER_JS="$app/Contents/Resources/server/server.js" \
+    "$app/Contents/MacOS/Bops" -e "process.chdir = () => {}; require(process.env.BOPS_SERVER_JS)" > "$smoke/server.log" 2>&1) &
+  smoke_pid=$!
+  for _ in $(seq 1 60); do
+    if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:3299/api/health)" = 200 ]; then ok=1; break; fi
+    sleep 1
   done
-fi
-kill "$smoke_pid" 2>/dev/null || true
-wait "$smoke_pid" 2>/dev/null || true
-if [ -z "$ok" ] || grep -qE "Cannot find module|MODULE_NOT_FOUND|ENOENT" "$smoke/server.log"; then
-  echo "The bundled server failed its smoke test; its log:" >&2
-  sed -n 1,40p "$smoke/server.log" >&2
-  exit 1
-fi
-rm -rf "$smoke"
-echo "Bundled server smoke test passed."
+  # The page and the app's state must answer too, with no key set (the window loads both first).
+  if [ -n "$ok" ]; then
+    for route in / /api/state; do
+      code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "http://127.0.0.1:3299$route")"
+      [ "$code" = 200 ] || { echo "$route answered $code without keys." >&2; ok=""; }
+    done
+  fi
+  kill "$smoke_pid" 2>/dev/null || true
+  wait "$smoke_pid" 2>/dev/null || true
+  if [ -z "$ok" ] || grep -qE "Cannot find module|MODULE_NOT_FOUND|ENOENT" "$smoke/server.log"; then
+    echo "The bundled server in $app failed its smoke test; its log:" >&2
+    sed -n 1,40p "$smoke/server.log" >&2
+    exit 1
+  fi
+  rm -rf "$smoke"
+  echo "Bundled server smoke test passed ($app)."
+}
 
-# -dvv: plain -dv never prints the Authority lines. Read into a variable first: with pipefail, grep -q
-# stopping at the first match makes codesign fail on the closed pipe, and the check with it.
-signature="$( [ -d "$app" ] && codesign -dvv "$app" 2>&1 || true)"
-if [[ "$signature" == *"Authority=Developer ID Application"* ]]; then
-  codesign --verify --deep --strict "$app" && echo "Signature OK."
-  spctl -a -vv -t exec "$app" 2>&1 || echo "Gatekeeper doesn't accept it yet (not notarized?)." >&2
-elif [ -n "$signing" ]; then
-  echo "Bops.app isn't signed with a Developer ID Application certificate:" >&2
-  grep Authority <<<"$signature" >&2 || echo "  (not signed)" >&2
-  exit 1
-fi
+for arch in "${arches[@]}"; do
+  app="$(app_of "$arch")"
+  [ -d "$app" ] || { echo "No $app: electron-builder didn't build $arch." >&2; exit 1; }
+  if [ "$arch" = arm64 ] && [ "$(uname -m)" != arm64 ]; then
+    echo "This is an Intel Mac, which can't run the Apple silicon app: its server isn't smoke tested here." >&2
+  elif [ "$arch" = x64 ] && [ "$(uname -m)" = arm64 ] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+    echo "Rosetta isn't installed, so the Intel app's server isn't smoke tested (softwareupdate --install-rosetta)." >&2
+  else
+    smoke_test "$app"
+  fi
+
+  # -dvv: plain -dv never prints the Authority lines. Read into a variable first: with pipefail, grep -q
+  # stopping at the first match makes codesign fail on the closed pipe, and the check with it.
+  signature="$(codesign -dvv "$app" 2>&1 || true)"
+  if [[ "$signature" == *"Authority=Developer ID Application"* ]]; then
+    codesign --verify --deep --strict "$app" && echo "Signature OK ($arch)."
+    spctl -a -vv -t exec "$app" 2>&1 || echo "Gatekeeper doesn't accept the $arch app yet (not notarized?)." >&2
+  elif [ -n "$signing" ]; then
+    echo "The $arch Bops.app isn't signed with a Developer ID Application certificate:" >&2
+    grep Authority <<<"$signature" >&2 || echo "  (not signed)" >&2
+    exit 1
+  fi
+done
 ls -lh dist-desktop/*.dmg dist-desktop/*.zip 2>/dev/null || true

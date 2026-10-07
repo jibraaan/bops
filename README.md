@@ -67,7 +67,7 @@ Coming soon: WhatsApp, and a real phone per bot.
 - **Hosted (easiest):** [download the Mac app](https://bops.bot/download/Bops.dmg) and sign in with Orgo. Every service is run for you; no keys on your Mac. Free to start, with Pro and Max plans for more AI credit.
 - **Self-hosted:** free under the license. Bring your own keys and run everything yourself: see below.
 
-Requires macOS on Apple silicon.
+Runs on macOS with Apple silicon or an Intel chip.
 
 ## How it works
 
@@ -85,7 +85,7 @@ Everything runs on your Mac except the bots' computers and the providers. `edge/
 
 ## Requirements
 
-- macOS on Apple Silicon, Node 22 or newer.
+- macOS (Apple silicon or Intel), Node 22 or newer.
 - **Required:** an OpenAI API key and an Orgo account.
 - **Recommended:** Typesafe (small judgment calls), Honcho (memory), Composio (apps), AgentMail (email), Tailscale (direct live view of the bots' screens).
 - **Optional:** AgentPhone plus a public URL for texts and calls (see `edge/`).
@@ -125,7 +125,7 @@ US texting needs an A2P 10DLC registration for your brand.
 scripts/release.sh          # or: npm run app:release
 ```
 
-It fetches the `orgo-relay` agent (`scripts/fetch-relay.sh`, into `vendor/orgo-relay/`), builds the server (`next build`, `output: "standalone"`), and makes `dist-desktop/Bops-<version>-arm64.dmg` and `.zip` (Apple silicon). The app carries the server in `Contents/Resources/server` and runs it with its own Node (no Node or source folder needed on the user's Mac); its state lives in `~/Library/Application Support/Bops/server/.data` and its log in `~/Library/Logs/Bops/server.log`. The relay agent ships as `Contents/Resources/bin/orgo-relay`. No `.env` file goes into the app; settings for one Mac can go in `~/Library/Application Support/Bops/.env.local`. Before finishing, the script starts the bundled server once as a fresh install would, with no keys and an empty home folder (port 3299), and checks that the page and the app's state answer. The bundled server listens on 127.0.0.1 only: bot computers' app calls and phone webhooks, which come over the tailnet, don't reach it unless that `.env.local` says `BOPS_LISTEN_ALL=1` (then `proxy.ts` lets other addresses reach only those paths). While it's loopback only, Orgo threads get no app tools.
+It fetches the `orgo-relay` agent for each architecture (`scripts/fetch-relay.sh`, into `vendor/orgo-relay/orgo-relay-<arch>`), builds the server (`next build`, `output: "standalone"`), and makes `dist-desktop/Bops-<version>-arm64.dmg` and `.zip` (Apple silicon) and `Bops-<version>-x64.dmg` and `.zip` (Intel). The server is plain JavaScript run by the app's own Electron, so the relay is the only part built per architecture. The app carries the server in `Contents/Resources/server` and runs it with its own Node (no Node or source folder needed on the user's Mac); its state lives in `~/Library/Application Support/Bops/server/.data` and its log in `~/Library/Logs/Bops/server.log`. The relay agent ships as `Contents/Resources/bin/orgo-relay`. No `.env` file goes into the app; settings for one Mac can go in `~/Library/Application Support/Bops/.env.local`. Before finishing, the script starts each app's bundled server once as a fresh install would (the Intel one under Rosetta on Apple silicon), with no keys and an empty home folder (port 3299), and checks that the page and the app's state answer. The bundled server listens on 127.0.0.1 only: bot computers' app calls and phone webhooks, which come over the tailnet, don't reach it unless that `.env.local` says `BOPS_LISTEN_ALL=1` (then `proxy.ts` lets other addresses reach only those paths). While it's loopback only, Orgo threads get no app tools.
 
 What a release needs:
 

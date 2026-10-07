@@ -10,8 +10,8 @@
     "start": "next start",
     "lint": "eslint",
     "app": "electron .",
-    "app:build": "node -e \"require('fs').writeFileSync('desktop/repo.json', JSON.stringify({ path: process.cwd() }))\" && electron-builder --mac --dir -c.mac.identity=null",
-    "app:install": "npm run app:build && rm -rf /Applications/Bops.app && ditto dist-desktop/mac-arm64/Bops.app /Applications/Bops.app",
+    "app:build": "node -e \"require('fs').writeFileSync('desktop/repo.json', JSON.stringify({ path: process.cwd() }))\" && electron-builder --mac --dir --$(node -p process.arch) -c.mac.identity=null",
+    "app:install": "npm run app:build && rm -rf /Applications/Bops.app && ditto dist-desktop/mac$([ \"$(uname -m)\" = arm64 ] && echo -arm64)/Bops.app /Applications/Bops.app",
     "fast": "next build && next start --port 3210",
     "app:release": "scripts/release.sh"
   },
@@ -87,7 +87,7 @@
         "to": "server/public"
       },
       {
-        "from": "vendor/orgo-relay/orgo-relay",
+        "from": "vendor/orgo-relay/orgo-relay-${arch}",
         "to": "bin/orgo-relay"
       }
     ],
@@ -97,17 +97,20 @@
         {
           "target": "dmg",
           "arch": [
-            "arm64"
+            "arm64",
+            "x64"
           ]
         },
         {
           "target": "zip",
           "arch": [
-            "arm64"
+            "arm64",
+            "x64"
           ]
         }
       ],
       "icon": "desktop/icon.icns",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "category": "public.app-category.productivity",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,

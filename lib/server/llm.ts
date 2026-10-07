@@ -57,10 +57,11 @@ export function respond(ask: Ask): Promise<Reply> {
 
 // ── OpenAI ────────────────────────────────────────────────────────────────────────────────────────
 
-const oa = openaiClient();
+// Made on first use, like Claude's: a Mac on Claude never makes one for the chat.
+let oa: ReturnType<typeof openaiClient> | undefined;
 
 async function openai(ask: Ask): Promise<Reply> {
-  const res = await oa.responses.create({
+  const res = await (oa ??= openaiClient()).responses.create({
     model: ask.openaiModel,
     reasoning: { effort: ask.effort ?? "low" },
     instructions: ask.instructions,
